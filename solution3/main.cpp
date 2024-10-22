@@ -40,7 +40,6 @@ __kernel void reduce_sum(__global const float* a, __global float* result, const 
         result[get_group_id(0)] = local_sum[0];
     }
 }
-
 )";
 
 void add_opencl() {
@@ -68,7 +67,6 @@ void add_opencl() {
     kernel.setArg(1, result);
     kernel.setArg(2, N);
     
-
     cl::NDRange globalSize(numGroups * localSize);
     cl::NDRange localSizeRange(localSize);
 
@@ -92,9 +90,8 @@ void add_opencl() {
     std::cout << "GPU sum: " << res << std::endl;
 }
 
-
 void add_loop() {
-    for(int i = 0; i < a.size(); i++) {
+    for (int i = 0; i < a.size(); i++) {
         lres += a[i];
     }
 }
@@ -114,7 +111,57 @@ int main() {
     std::cout << "Time taken cpu: " << cpu_duration.count() << " seconds\n";
     std::cout << "CPU sum: " << lres << std::endl;
 
-    add_opencl();
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
+
+    for (auto& platform : platforms) {
+        std::vector<cl::Device> devices;
+        platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
+
+        for (auto& device : devices) {
+            std::cout << "Using device: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
+
+            cl::Context context(device);
+            cl::CommandQueue queue(context, device, CL_QUEUE_PROFILING_ENABLE);
+
+            cl::Buffer bufferA(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * N, a.data());
+            
+            size_t localSize = 256;
+            size_t numGroups = (N + localSize - 1) / localSize;
+            cl::Buffer result(context, CL_MEM_WRITE_ONLY, sizeof(float) * numGroups);
+
+            cl::Program program(context, kernelSource);
+            program.build({device});
+
+            cl::Kernel kernel(program, "reduce_sum");
+            kernel.setArg(0, bufferA);
+            kernel.setArg(1, result);
+            kernel.setArg(2, N);
+
+            cl::NDRange globalSize(numGroups * localSize);
+            cl::NDRange localSizeRange(localSize);
+
+            cl::Event event;
+
+            queue.enqueueNDRangeKernel(kernel, cl::NullRange, globalSize, localSizeRange, nullptr, &event);
+            queue.finish();
+
+            cl_ulong start_time, end_time;
+            event.getProfilingInfo(CL_PROFILING_COMMAND_START, &start_time);
+            event.getProfilingInfo(CL_PROFILING_COMMAND_END, &end_time);
+            float gpu_duration = (end_time - start_time) * 1e-9;
+            std::cout << "Time taken on " << device.getInfo<CL_DEVICE_NAME>() << " (GPU): " << gpu_duration << " seconds\n";
+
+            std::vector<float> partialSums(numGroups);
+            queue.enqueueReadBuffer(result, CL_TRUE, 0, sizeof(float) * numGroups, partialSums.data());
+
+            res = 0;
+            for (float partial : partialSums) {
+                res += partial;
+            }
+            std::cout << "GPU sum on " << device.getInfo<CL_DEVICE_NAME>() << ": " << res << std::endl;
+        }
+    }
 
     return 0;
 }

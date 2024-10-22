@@ -106,20 +106,32 @@ void validate(std::vector<float>& cpu_result, std::vector<float>& gpu_result, in
 int main() {
     fill_random(matrixA);
     fill_random(matrixB);
-    
-    auto start_gpu = std::chrono::high_resolution_clock::now();
-    multiply_opencl();
-    auto end_gpu = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> gpu_duration = end_gpu - start_gpu;
-    std::cout << "Time taken GPU: " << gpu_duration.count() << " seconds\n";
 
-    auto start_cpu = std::chrono::high_resolution_clock::now();
-    multiply_loop();
-    auto end_cpu = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> cpu_duration = end_cpu - start_cpu;
-    std::cout << "Time taken CPU: " << cpu_duration.count() << " seconds\n";
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
 
-    validate(resultCPU, resultGPU, rowsA, colsB);
+    for (auto& platform : platforms) {
+        std::vector<cl::Device> devices;
+        platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
+
+        for (auto& device : devices) {
+            std::cout << "Using device: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
+
+            auto start_gpu = std::chrono::high_resolution_clock::now();
+            multiply_opencl();
+            auto end_gpu = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> gpu_duration = end_gpu - start_gpu;
+            std::cout << "Time taken on " << device.getInfo<CL_DEVICE_NAME>() << " (GPU): " << gpu_duration.count() << " seconds\n";
+
+            auto start_cpu = std::chrono::high_resolution_clock::now();
+            multiply_loop();
+            auto end_cpu = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> cpu_duration = end_cpu - start_cpu;
+            std::cout << "Time taken on CPU: " << cpu_duration.count() << " seconds\n";
+
+            validate(resultCPU, resultGPU, rowsA, colsB);
+        }
+    }
 
     return 0;
 }

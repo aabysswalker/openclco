@@ -37,31 +37,16 @@ void fill_random(std::vector<int>& array) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(1, 100);
-
     for (auto& elem : array) {
         elem = dis(gen);
     }
-}
-
-void print_array(const std::vector<int>& array) {
-    for (const auto& elem : array) {
-        std::cout << elem << " ";
-    }
-    std::cout << std::endl;
 }
 
 int next_power_of_two(int x) {
     return std::pow(2, std::ceil(std::log2(x)));
 }
 
-void bitonic_sort_opencl(std::vector<int>& input, int padded_size) {
-    std::vector<cl::Platform> platforms;
-    cl::Platform::get(&platforms);
-    cl::Platform platform = platforms[0];
-    std::vector<cl::Device> devices;
-    platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-    cl::Device device = devices[0];
-
+void bitonic_sort_opencl(std::vector<int>& input, int padded_size, const cl::Device& device) {
     cl::Context context(device);
     cl::CommandQueue queue(context, device);
 
@@ -87,7 +72,6 @@ void bitonic_sort_opencl(std::vector<int>& input, int padded_size) {
 
 void sort_cpu(std::vector<int>& a) {
     bool swapped;
-  
     for (int i = 0; i < a.size(); i++) {
         swapped = false;
         for (int j = 0; j < a.size() - 1; j++) {
@@ -115,10 +99,7 @@ int main() {
     fill_random(data);
     ldata = data;
 
-    // std::cout << "Original array: " << std::endl;
-    // print_array(data);
     int size = data.size();
-
     int padded_size = next_power_of_two(data.size());
     data.resize(padded_size);
     ldata.resize(padded_size);
@@ -127,23 +108,30 @@ int main() {
     sort_cpu(ldata);
     auto end_cpu = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> cpu_duration = end_cpu - start_cpu;
-    std::cout << "Time taken cpu: " << cpu_duration.count() << " seconds\n";
+    std::cout << "Time taken CPU: " << cpu_duration.count() << " seconds\n";
 
-    auto start_gpu = std::chrono::high_resolution_clock::now();
-    bitonic_sort_opencl(data, padded_size);
-    auto end_gpu = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> gpu_duration = end_gpu - start_gpu;
-    std::cout << "Time taken gpu: " << gpu_duration.count() << " seconds. \n";
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
 
-    data.erase(data.begin(), data.begin() + padded_size - size);
-    ldata.erase(ldata.begin(), ldata.begin() + padded_size - size);
+    for (const auto& platform : platforms) {
+        std::vector<cl::Device> devices;
+        platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
 
-    // std::cout << "Result CPU: " << std::endl;
-    // print_array(ldata);
-    // std::cout << "Result GPU: " << std::endl;
-    // print_array(data);
+        for (const auto& device : devices) {
+            std::cout << "Running on device: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
 
-    validate(data, ldata);
+            auto start_gpu = std::chrono::high_resolution_clock::now();
+            bitonic_sort_opencl(data, padded_size, device);
+            auto end_gpu = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> gpu_duration = end_gpu - start_gpu;
+            std::cout << "Time taken GPU: " << gpu_duration.count() << " seconds\n";
+
+            data.erase(data.begin(), data.begin() + padded_size - size);
+            ldata.erase(ldata.begin(), ldata.begin() + padded_size - size);
+
+            validate(data, ldata);
+        }
+    }
 
     return 0;
 }
